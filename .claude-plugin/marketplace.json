@@ -1,0 +1,9 @@
+{
+  "marketplace": "github-MisterK-P2K-glm-quota",
+  "plugins": [
+    {
+      "name": "glm-quota",
+      "source": "./"
+    }
+  ]
+}

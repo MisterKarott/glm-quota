@@ -1,0 +1,12 @@
+{
+  "name": "glm-quota",
+  "version": "1.0.0",
+  "description": "Z.ai/GLM quota statusline, detailed quota skill, and MCP coherence check for Claude Code",
+  "author": {
+    "name": "Chris MisterK",
+    "url": "https://github.com/MisterK-P2K"
+  },
+  "repository": "https://github.com/MisterK-P2K/glm-quota",
+  "license": "MIT",
+  "keywords": ["zai", "glm", "quota", "statusline", "monitoring"]
+}

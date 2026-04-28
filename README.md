@@ -17,7 +17,7 @@ Claude Code plugin for Z.ai/GLM quota monitoring — statusline, detailed quota 
 ## Installation
 
 ```bash
-claude plugin add MisterK-P2K/glm-quota
+claude plugin add MisterKarott/glm-quota
 ```
 
 Then configure your statusline in `settings.json`:

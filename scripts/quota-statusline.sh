@@ -13,12 +13,14 @@ done
 
 # If stdin has data (piped by Claude Code), try the old rate_limits format
 if [[ ! -t 0 ]]; then
-  input=$(timeout 1 cat 2>/dev/null || true)
+  input=$(cat 2>/dev/null || true)
   if [[ -n "$input" ]]; then
     five_h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
     seven_d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
     cost_usd=$(echo "$input" | jq -r '.cost.total_cost_usd // empty' 2>/dev/null)
-    if [[ -n "$five_h" || -n "$seven_d" || -n "$cost_usd" ]]; then
+    ctx_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty' 2>/dev/null)
+    model_name=$(echo "$input" | jq -r '.model.display_name // .model.id // empty' 2>/dev/null)
+    if [[ -n "$five_h" || -n "$seven_d" ]]; then
       # Delegate to old rendering logic
       output="⟡ "
       if [[ -n "$five_h" ]]; then output+="5h: ${five_h}%"; fi
@@ -28,6 +30,10 @@ if [[ ! -t 0 ]]; then
         cost_fmt=$(printf '%.4f' "$cost_usd" 2>/dev/null)
         [[ -n "$five_h" || -n "$seven_d" ]] && output+=" │ "
         output+="\$${cost_fmt}"
+      fi
+      if [[ -n "$ctx_pct" ]]; then
+        [[ -n "$five_h" || -n "$seven_d" || -n "$cost_usd" ]] && output+=" │ "
+        output+="Ctx: ${ctx_pct}%"
       fi
       echo "$output"
       exit 0
@@ -142,7 +148,7 @@ if [[ -n "$token_5h_2" ]]; then
   fi
 fi
 
-# Render bar segment
+# Render circle segment (unicode)
 render_bar() {
   local pct="${1%.*}"
   pct=${pct:-0}
@@ -162,26 +168,33 @@ render_bar() {
 
   local filled=$(( (pct + 5) / 10 ))
   local empty=$(( 10 - filled ))
+  (( filled > 10 )) && filled=10
   local bar=""
   for (( j=0; j<filled; j++ )); do bar+="█"; done
   for (( j=0; j<empty; j++ )); do bar+="░"; done
   printf "${color}%s %s%%${reset}" "$bar" "$pct"
 }
 
-# Build output
-output="⟡ "
+# Build output — 2 lines
+line1="⟡ Model:"
+line2="  "
+if [[ -n "$model_name" ]]; then
+  line1+="\e[1m${model_name}\e[0m"
+fi
+if [[ -n "$ctx_pct" ]]; then
+  line1+=" \e[2m│\e[0m Ctx:$(render_bar "$ctx_pct")"
+fi
 if [[ -n "$token_5h" ]]; then
-  output+="5h:$(render_bar "$token_5h")"
-  if [[ -n "$reset_5h" ]]; then output+=" \e[2m↻$(fmt_reset "$reset_5h")\e[0m"; fi
+  line2+="5h:$(render_bar "$token_5h")"
+  if [[ -n "$reset_5h" ]]; then line2+=" \e[2m↻$(fmt_reset "$reset_5h")\e[0m"; fi
 fi
 if [[ -n "$token_5h_2" ]]; then
-  output+=" \e[2m│\e[0m 7j:$(render_bar "$token_5h_2")"
-  if [[ -n "$reset_7d" ]]; then output+=" \e[2m↻$(fmt_reset "$reset_7d")\e[0m"; fi
+  line2+=" \e[2m│\e[0m 7j:$(render_bar "$token_5h_2")"
+  if [[ -n "$reset_7d" ]]; then line2+=" \e[2m↻$(fmt_reset "$reset_7d")\e[0m"; fi
 fi
 if [[ -n "$mcp_pct" ]]; then
-  [[ -n "$token_5h" ]] && output+=" \e[2m│\e[0m "
-  output+="MCP:\e[36m${mcp_cur}/${mcp_max}\e[0m"
-  if [[ -n "$reset_mcp" ]]; then output+=" \e[2m↻$(fmt_reset "$reset_mcp")\e[0m"; fi
+  [[ -n "$token_5h" || -n "$token_5h_2" ]] && line2+=" \e[2m│\e[0m "
+  line2+="MCP:\e[36m${mcp_cur}/${mcp_max}\e[0m"
+  if [[ -n "$reset_mcp" ]]; then line2+=" \e[2m↻$(fmt_reset "$reset_mcp")\e[0m"; fi
 fi
-
-printf '%b\n' "$output"
+printf '%b\n%b\n' "$line1" "$line2"

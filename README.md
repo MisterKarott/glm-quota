@@ -21,23 +21,21 @@ When you're using Claude Code with a **Z.ai / GLM provider**, you get rate-limit
 
 `glm-quota` surfaces all three limits in **real time**, right in your Claude Code statusline. No more guessing when you're about to hit a wall.
 
-### Screenshot
-
-![glm-quota statusline in action](assets/screenshot.png)
-
 ---
 
 ## Features
 
 ### Statusline display
 
-A compact, color-coded bar that updates on every turn:
+A compact two-line display that updates on every turn:
 
 ```
-⟡ 5h:██████░░░░ 62% ↻2h │ 7j:███░░░░░░░ 31% ↻5j │ MCP:172/4000 ↻18h
+⟡ Model: glm-5-turbo [1M] │ Ctx:████████░░ 82% │ Tk: 123k
+  5h:██████░░░░ 62% ↻2h │ 7j:███░░░░░░░ 31% ↻5j │ MCP:172/4000 ↻18h
 ```
 
-- **Color coding**: green (< 70%), yellow (70–90%), red (>= 90%)
+- **Line 1** — current model, context window usage, and token count
+- **Line 2** — 5h and 7d token limits, plus MCP call usage
 - **Reset timers**: shows how long until each window resets (minutes, hours, or days)
 - **Smart caching**: queries the Z.ai API only once every 5 minutes to avoid spamming
 

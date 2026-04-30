@@ -14,12 +14,11 @@ Keep an eye on your context usage and Z.ai token limits — directly in your Cla
 
 ## What it does
 
-Two things that matter when you're deep in a Claude Code session:
+Quand tu bosses dans Claude Code en mode Z.ai/GLM, ya deux trucs qui comptent vraiment : savoir ou tu en es du context pour pas que la qualite baisse, et savoir combien de quota il te reste avant de te faire couper en plein milieu d'un truc.
 
-1. **How much context have I burned?** — so you know when to `/compact` before quality drops
-2. **How much Z.ai quota do I have left?** — so you don't hit a wall mid-task
+Le probleme, c'est que Claude Code affiche une consommation de context qui ne compte pas les tokens de cache — du coup le chiffre ne colle pas avec ce que tu vois reellement dans le terminal. Et pour le quota Z.ai, tu es aveugle jusqu'a ce que ca bloque.
 
-`glm-quota` answers both, in real time, right in your statusline.
+glm-quota regle ca. Il affiche le vrai pourcentage de context (input + output + cache read + cache creation) et interroge l'API Z.ai pour te montrer tes fenetres de quota. Le tout en deux lignes dans la statusline, mises a jour a chaque tour. Et quand tu arrives a 50% du context, il te rappelle de faire un `/compact` avant que ca devienne urgent.
 
 ---
 

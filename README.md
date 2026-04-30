@@ -14,11 +14,11 @@ Keep an eye on your context usage and Z.ai token limits — directly in your Cla
 
 ## What it does
 
-Quand tu bosses dans Claude Code en mode Z.ai/GLM, ya deux trucs qui comptent vraiment : savoir ou tu en es du context pour pas que la qualite baisse, et savoir combien de quota il te reste avant de te faire couper en plein milieu d'un truc.
+When you're deep in a Claude Code session using Z.ai/GLM, two things matter: how much context you've burned through, and how much quota you've got left before you hit a wall.
 
-Le probleme, c'est que Claude Code affiche une consommation de context qui ne compte pas les tokens de cache — du coup le chiffre ne colle pas avec ce que tu vois reellement dans le terminal. Et pour le quota Z.ai, tu es aveugle jusqu'a ce que ca bloque.
+The problem is that Claude Code's built-in context display doesn't count cached tokens — so the number it shows doesn't match what you actually see in the terminal. And for Z.ai quota, you're flying blind until something breaks.
 
-glm-quota regle ca. Il affiche le vrai pourcentage de context (input + output + cache read + cache creation) et interroge l'API Z.ai pour te montrer tes fenetres de quota. Le tout en deux lignes dans la statusline, mises a jour a chaque tour. Et quand tu arrives a 50% du context, il te rappelle de faire un `/compact` avant que ca devienne urgent.
+glm-quota fixes both. It shows the real context percentage (counting input, output, cache reads, and cache creations) and queries the Z.ai API for your token windows and MCP limits. All in two lines in your statusline, updated on every turn. And when you cross 50% context, it drops a `⚡ /compact` reminder so you can compact before quality drops.
 
 ---
 
@@ -27,7 +27,7 @@ glm-quota regle ca. Il affiche le vrai pourcentage de context (input + output + 
 A compact two-line display that updates on every turn:
 
 ```
-⟡ glm-5.1 [1M] │ Ctx:█████░░░░░ 17% │ 168k/1000k │ ⚡ /compact
+⟡ glm-5.1 [1M] │ Ctx:█████░░░░░ 52% │ 520k/1000k │ ⚡ /compact
   5h:██░░░░░░░░ 22% ↻3h │ 7j:█░░░░░░░░░ 8% ↻6j │ MCP:172/4000 ↻18h
 ```
 

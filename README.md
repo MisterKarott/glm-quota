@@ -4,9 +4,9 @@
 
 **Z.ai / GLM Quota Monitor for Claude Code**
 
-Keep an eye on your Z.ai token usage and MCP call limits — directly in your Claude Code statusline.
+Keep an eye on your context usage and Z.ai token limits — directly in your Claude Code statusline.
 
-[![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-blue)](https://claude.ai/code) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude%20-Plugin-blue)](https://claude.ai/code) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
 
@@ -14,38 +14,49 @@ Keep an eye on your Z.ai token usage and MCP call limits — directly in your Cl
 
 ## What it does
 
-When you're using Claude Code with a **Z.ai / GLM provider**, you get rate-limited across two dimensions:
+Two things that matter when you're deep in a Claude Code session:
 
-- **Token windows** — a 5-hour rolling window and a 7-day rolling window
-- **MCP tool calls** — a separate daily counter for MCP server invocations
+1. **How much context have I burned?** — so you know when to `/compact` before quality drops
+2. **How much Z.ai quota do I have left?** — so you don't hit a wall mid-task
 
-`glm-quota` surfaces all three limits in **real time**, right in your Claude Code statusline. No more guessing when you're about to hit a wall.
+`glm-quota` answers both, in real time, right in your statusline.
 
 ---
 
-## Features
-
-### Statusline display
+## Statusline display
 
 A compact two-line display that updates on every turn:
 
 ```
-⟡ Model: glm-5-turbo [1M] │ Ctx:████████░░ 82% │ Tk: 123k
-  5h:██████░░░░ 62% ↻2h │ 7j:███░░░░░░░ 31% ↻5j │ MCP:172/4000 ↻18h
+⟡ glm-5.1 [1M] │ Ctx:█████░░░░░ 17% │ 168k/1000k │ ⚡ /compact
+  5h:██░░░░░░░░ 22% ↻3h │ 7j:█░░░░░░░░░ 8% ↻6j │ MCP:172/4000 ↻18h
 ```
 
-- **Line 1** — current model, context window usage, and token count
-- **Line 2** — 5h and 7d token limits, plus MCP call usage
-- **Reset timers**: shows how long until each window resets (minutes, hours, or days)
-- **Smart caching**: queries the Z.ai API only once every 5 minutes to avoid spamming
+### Line 1 — Context
 
-### `/quota` skill
+| Element | What it shows |
+|---------|---------------|
+| Model name | Currently active model |
+| `Ctx:` bar | Visual bar of context window usage |
+| Token count | `used/total` in k (e.g. `168k/1000k`) |
+| `⚡ /compact` | Appears automatically at 50% context usage |
 
-Type `/quota` or ask "how much quota do I have left?" for a detailed, formatted breakdown of all your limits, percentages, and reset times in a clean box-drawing table.
+The context percentage is calculated from **real token consumption** — `input + output + cache_read + cache_creation` — not the simplified number Claude Code reports. So it matches what you actually see in the terminal.
 
-### MCP coherence check (SessionStart hook)
+### Line 2 — Z.ai quota
 
-When you start a session, the plugin automatically checks that your Z.ai MCP servers (`zai-mcp-server`, `web-reader`, `zread`, `duckduckgo`) are properly enabled or disabled based on your current mode (GLM vs Claude Pro). If something is misconfigured, you get a clear warning with a suggested fix.
+| Element | What it shows |
+|---------|---------------|
+| `5h:` bar | Token usage in the 5-hour rolling window |
+| `7j:` bar | Token usage in the 7-day rolling window |
+| `MCP:` counter | MCP tool calls used / daily limit |
+| `↻` timer | Time until each window resets |
+
+---
+
+## SessionStart hook — MCP coherence check
+
+When you start a session, the plugin checks that your Z.ai MCP servers (`zai-mcp-server`, `web-reader`, `zread`, `duckduckgo`) are properly enabled or disabled based on your current mode. If something is off, you get a clear warning with a suggested fix.
 
 ---
 
@@ -75,24 +86,22 @@ Add this to your `~/.claude/settings.json`:
 
 ### 3. Restart Claude Code
 
-The statusline, hook, and skills will activate on the next session.
+Everything activates on the next session.
 
 ---
 
 ## How it works
 
-The plugin queries the Z.ai monitoring API:
+**Context data** comes from the JSON Claude Code pipes to the statusline via stdin. The script extracts token counts and calculates the real percentage including cached tokens.
+
+**Quota data** comes from the Z.ai monitoring API:
 
 ```
 GET {ANTHROPIC_BASE_URL}/api/monitor/usage/quota/limit
 Authorization: {ANTHROPIC_AUTH_TOKEN}
 ```
 
-It parses the response to extract:
-- `TOKENS_LIMIT` entries (5h and 7d windows) with percentage and next reset time
-- `TIME_LIMIT` entry (MCP calls) with current/max usage
-
-Everything runs locally — no data leaves your machine. The script uses a 5-minute cache file in `/tmp/.glm-quota-cache/` to minimize API calls.
+It parses `TOKENS_LIMIT` (5h and 7d windows) and `TIME_LIMIT` (MCP calls). Everything runs locally — no data leaves your machine. A 5-minute cache in `/tmp/.glm-quota-cache/` keeps API calls minimal.
 
 ---
 
@@ -107,25 +116,11 @@ Everything runs locally — no data leaves your machine. The script uses a 5-min
 
 ---
 
-## Configuration
-
-The plugin reads environment variables set by Claude Code from your `settings.json`:
-
-| Variable | Purpose |
-|----------|---------|
-| `ANTHROPIC_BASE_URL` | Detects GLM mode (must contain `api.z.ai`) |
-| `ANTHROPIC_AUTH_TOKEN` | Authenticates with the Z.ai quota API |
-
-No additional configuration files needed — it just works when you're in GLM mode, and stays silent when you're not.
-
----
-
 ## Components
 
 | Component | Type | Description |
 |-----------|------|-------------|
-| `quota-statusline.sh` | Script | Statusline renderer with caching and color output |
-| `quota` | Skill | Detailed quota view on demand |
+| `quota-statusline.sh` | Script | Statusline renderer — context bar + Z.ai quota |
 | `glm-mode` | Skill | GLM/Zai mode context for other components |
 | `check-mcp-coherence.sh` | Hook (SessionStart) | Validates MCP server configuration |
 
@@ -133,8 +128,8 @@ No additional configuration files needed — it just works when you're in GLM mo
 
 ## Compatibility
 
-- **macOS** and **Linux** supported (cross-platform `stat` fallback)
-- Automatically disables itself when not in GLM mode (outputs nothing for non-Z.ai providers)
+- macOS and Linux (cross-platform `stat` fallback)
+- Stays silent when not in GLM mode — outputs nothing for other providers
 
 ---
 

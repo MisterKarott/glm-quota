@@ -1,7 +1,7 @@
 #!/bin/bash
-# Statusline script for GLM mode — fetches and displays Z.ai quota
+# Statusline script for GLM mode — displays context + Z.ai quota
 # Uses a 5-minute cache to avoid API spam
-# Reads JSON from stdin (Claude Code statusLine) or runs standalone
+# Reads JSON from stdin (Claude Code statusLine)
 
 MODE="bar"
 while [[ $# -gt 0 ]]; do
@@ -11,116 +11,26 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# If stdin has data (piped by Claude Code), try the old rate_limits format
+# --- Parse stdin from Claude Code ---
+input=""
+ctx_pct=""
+ctx_tokens=""
+ctx_total=""
+model_name=""
+cost_usd=""
+
 if [[ ! -t 0 ]]; then
   input=$(cat 2>/dev/null || true)
   if [[ -n "$input" ]]; then
-    five_h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
-    seven_d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
-    cost_usd=$(echo "$input" | jq -r '.cost.total_cost_usd // empty' 2>/dev/null)
     ctx_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty' 2>/dev/null)
-    ctx_tokens=$(echo "$input" | jq -r '.context_window.total_input_tokens + .context_window.total_output_tokens // empty' 2>/dev/null)
     ctx_total=$(echo "$input" | jq -r '.context_window.context_window_size // empty' 2>/dev/null)
+    # Total tokens = input + output + cache read + cache creation
+    ctx_tokens=$(echo "$input" | jq -r '(.context_window.total_input_tokens // 0) + (.context_window.total_output_tokens // 0) + (.context_window.current_usage.cache_read_input_tokens // 0) + (.context_window.current_usage.cache_creation_input_tokens // 0)' 2>/dev/null)
     model_name=$(echo "$input" | jq -r '.model.display_name // .model.id // empty' 2>/dev/null)
-    if [[ -n "$five_h" || -n "$seven_d" ]]; then
-      # Delegate to old rendering logic
-      output="⟡ "
-      if [[ -n "$five_h" ]]; then output+="5h: ${five_h}%"; fi
-      if [[ -n "$five_h" && -n "$seven_d" ]]; then output+=" │ "; fi
-      if [[ -n "$seven_d" ]]; then output+="7d: ${seven_d}%"; fi
-      if [[ -n "$cost_usd" ]]; then
-        cost_fmt=$(printf '%.4f' "$cost_usd" 2>/dev/null)
-        [[ -n "$five_h" || -n "$seven_d" ]] && output+=" │ "
-        output+="\$${cost_fmt}"
-      fi
-      echo "$output"
-      exit 0
-    fi
   fi
 fi
 
-# --- GLM standalone mode: query Z.ai API directly ---
-
-BASE_URL="${ANTHROPIC_BASE_URL:-}"
-AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
-
-# Only run in GLM mode
-if [[ -z "$AUTH_TOKEN" || ! "$BASE_URL" =~ api\.z\.ai|bigmodel\.cn ]]; then
-  echo ""
-  exit 0
-fi
-
-# Parse base domain
-proto="${BASE_URL%%://*}"
-host="${BASE_URL#*://}"
-host="${host%%/*}"
-BASE="https://${host}"
-
-# Cache: 5 min TTL
-CACHE_DIR="/tmp/.glm-quota-cache"
-CACHE_FILE="${CACHE_DIR}/quota.json"
-mkdir -p "$CACHE_DIR" 2>/dev/null
-
-now_s=$(date +%s)
-cache_age=999999
-if [[ -f "$CACHE_FILE" ]]; then
-  cache_ts=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
-  cache_age=$(( now_s - cache_ts ))
-fi
-
-if (( cache_age < 300 )) && [[ -f "$CACHE_FILE" ]]; then
-  data=$(cat "$CACHE_FILE")
-else
-  data=$(curl -s --max-time 8 \
-    -H "Authorization: ${AUTH_TOKEN}" \
-    -H "Accept-Language: en-US" \
-    -H "Content-Type: application/json" \
-    "${BASE}/api/monitor/usage/quota/limit" 2>/dev/null)
-  if [[ $? -eq 0 && -n "$data" ]]; then
-    echo "$data" > "$CACHE_FILE"
-  fi
-fi
-
-if [[ -z "$data" ]]; then
-  echo "⟡ quota: --"
-  exit 0
-fi
-
-# Parse limits from JSON
-token_5h=""
-token_5h_2=""
-mcp_pct=""
-mcp_cur=""
-mcp_max=""
-reset_5h=""
-reset_7d=""
-reset_mcp=""
-
-idx=0
-limit_count=$(echo "$data" | jq '.data.limits | length' 2>/dev/null)
-
-for (( i=0; i<limit_count; i++ )); do
-  ltype=$(echo "$data" | jq -r ".data.limits[$i].type" 2>/dev/null)
-  lpct=$(echo "$data" | jq -r ".data.limits[$i].percentage // 0" 2>/dev/null)
-  lreset=$(echo "$data" | jq -r ".data.limits[$i].nextResetTime // empty" 2>/dev/null)
-
-  if [[ "$ltype" == "TOKENS_LIMIT" ]]; then
-    if [[ -z "$token_5h" ]]; then
-      token_5h="$lpct"
-      reset_5h="$lreset"
-    else
-      token_5h_2="$lpct"
-      reset_7d="$lreset"
-    fi
-  elif [[ "$ltype" == "TIME_LIMIT" ]]; then
-    mcp_pct="$lpct"
-    mcp_cur=$(echo "$data" | jq -r ".data.limits[$i].currentValue // 0" 2>/dev/null)
-    mcp_max=$(echo "$data" | jq -r ".data.limits[$i].usage // 0" 2>/dev/null)
-    reset_mcp="$lreset"
-  fi
-done
-
-# Format nextResetTime (ms epoch) → Xm / HH:MM / Xj
+# --- Helper: format reset time (ms epoch) → Xm / Xh / Xj ---
 fmt_reset() {
   local ms="${1%%.*}"
   [[ -z "$ms" || "$ms" == "null" ]] && return
@@ -138,15 +48,7 @@ fmt_reset() {
   fi
 }
 
-# Use the higher of the two token windows for "worst case" display
-token_worst="$token_5h"
-if [[ -n "$token_5h_2" ]]; then
-  if (( ${token_5h_2%.*} > ${token_5h%.*} )); then
-    token_worst="$token_5h_2"
-  fi
-fi
-
-# Render bar segment (1st arg: percentage, 2nd arg: "1d" for 1 decimal)
+# --- Helper: render bar segment ---
 render_bar() {
   local pct="${1%.*}"
   pct=${pct:-0}
@@ -178,19 +80,102 @@ render_bar() {
   printf "${color}%s %s%%${reset}" "$bar" "$fmt_pct"
 }
 
-# Build output — 2 lines
-line1="⟡ Model:"
+# --- Fetch Z.ai quota ---
+token_5h=""
+token_5h_2=""
+mcp_pct=""
+mcp_cur=""
+mcp_max=""
+reset_5h=""
+reset_7d=""
+reset_mcp=""
+
+BASE_URL="${ANTHROPIC_BASE_URL:-}"
+AUTH_TOKEN="${ANTHROPIC_AUTH_TOKEN:-}"
+
+if [[ -n "$AUTH_TOKEN" && "$BASE_URL" =~ api\.z\.ai|bigmodel\.cn ]]; then
+  proto="${BASE_URL%%://*}"
+  host="${BASE_URL#*://}"
+  host="${host%%/*}"
+  BASE="https://${host}"
+
+  CACHE_DIR="/tmp/.glm-quota-cache"
+  CACHE_FILE="${CACHE_DIR}/quota.json"
+  mkdir -p "$CACHE_DIR" 2>/dev/null
+
+  now_s=$(date +%s)
+  cache_age=999999
+  if [[ -f "$CACHE_FILE" ]]; then
+    cache_ts=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
+    cache_age=$(( now_s - cache_ts ))
+  fi
+
+  data=""
+  if (( cache_age < 300 )) && [[ -f "$CACHE_FILE" ]]; then
+    data=$(cat "$CACHE_FILE")
+  else
+    data=$(curl -s --max-time 8 \
+      -H "Authorization: ${AUTH_TOKEN}" \
+      -H "Accept-Language: en-US" \
+      -H "Content-Type: application/json" \
+      "${BASE}/api/monitor/usage/quota/limit" 2>/dev/null)
+    if [[ $? -eq 0 && -n "$data" ]]; then
+      echo "$data" > "$CACHE_FILE"
+    fi
+  fi
+
+  if [[ -n "$data" ]]; then
+    limit_count=$(echo "$data" | jq '.data.limits | length' 2>/dev/null)
+    for (( i=0; i<limit_count; i++ )); do
+      ltype=$(echo "$data" | jq -r ".data.limits[$i].type" 2>/dev/null)
+      lpct=$(echo "$data" | jq -r ".data.limits[$i].percentage // 0" 2>/dev/null)
+      lreset=$(echo "$data" | jq -r ".data.limits[$i].nextResetTime // empty" 2>/dev/null)
+
+      if [[ "$ltype" == "TOKENS_LIMIT" ]]; then
+        if [[ -z "$token_5h" ]]; then
+          token_5h="$lpct"
+          reset_5h="$lreset"
+        else
+          token_5h_2="$lpct"
+          reset_7d="$lreset"
+        fi
+      elif [[ "$ltype" == "TIME_LIMIT" ]]; then
+        mcp_pct="$lpct"
+        mcp_cur=$(echo "$data" | jq -r ".data.limits[$i].currentValue // 0" 2>/dev/null)
+        mcp_max=$(echo "$data" | jq -r ".data.limits[$i].usage // 0" 2>/dev/null)
+        reset_mcp="$lreset"
+      fi
+    done
+  fi
+fi
+
+# --- Build output — 2 lines ---
+line1="⟡"
 line2="  "
+
+# Compute real context percentage from actual token count (with cache)
+ctx_real_pct=""
+if [[ -n "$ctx_tokens" && -n "$ctx_total" && "$ctx_total" -gt 0 ]]; then
+  ctx_real_pct=$(( ctx_tokens * 100 / ctx_total ))
+fi
+
+# Line 1: model + context bar + cost
 if [[ -n "$model_name" ]]; then
   line1+=" ${model_name}"
 fi
-if [[ -n "$ctx_pct" ]]; then
-  line1+=" │ Ctx:$(render_bar "$ctx_pct" "1d")"
+if [[ -n "$ctx_real_pct" ]]; then
+  line1+=" │ Ctx:$(render_bar "$ctx_real_pct")"
   if [[ -n "$ctx_tokens" && -n "$ctx_total" ]]; then
-    ctx_fmt=$(( ctx_tokens / 1000 ))
-    line1+=" │ Tk: ${ctx_fmt}k"
+    ctx_k=$(( ctx_tokens / 1000 ))
+    ctx_max_k=$(( ctx_total / 1000 ))
+    line1+=" │ ${ctx_k}k/${ctx_max_k}k"
+  fi
+  if (( ctx_real_pct >= 50 )); then
+    line1+=" │ ⚡ /compact"
   fi
 fi
+
+# Line 2: Z.ai quota
 if [[ -n "$token_5h" ]]; then
   line2+="5h:$(render_bar "$token_5h")"
   if [[ -n "$reset_5h" ]]; then line2+=" ↻$(fmt_reset "$reset_5h")"; fi
@@ -204,4 +189,5 @@ if [[ -n "$mcp_pct" ]]; then
   line2+="MCP:${mcp_cur}/${mcp_max}"
   if [[ -n "$reset_mcp" ]]; then line2+=" ↻$(fmt_reset "$reset_mcp")"; fi
 fi
+
 printf '%b\n%b\n' "$line1" "$line2"

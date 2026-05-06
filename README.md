@@ -30,8 +30,19 @@ The plugin activates automatically when you're in GLM mode and stays completely 
 
 ## Installation
 
+### Via Marketplace (recommandé)
+
 ```bash
-claude plugin add MisterKarott/glm-quota
+claude plugin marketplace add https://github.com/MisterKarott/misterkarott-marketplace
+claude plugin install glm-quota
+```
+
+### Manuellement
+
+```bash
+git clone https://github.com/MisterKarott/glm-quota.git
+cd glm-quota
+claude plugin install glm-quota
 ```
 
 Then add this to your `~/.claude/settings.json`:
